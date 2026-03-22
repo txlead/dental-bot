@@ -13,7 +13,8 @@ OPENAI_KEY = os.environ.get("OPENAI_KEY", "sk-proj-HkggNIUfZiRpjDhgqkmQyIOPZBZCG
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")
 
 bot    = telebot.TeleBot(BOT_TOKEN)
-client = OpenAI(api_key=OPENAI_KEY)
+import httpx
+client = OpenAI(api_key=OPENAI_KEY, http_client=httpx.Client())
 
 # ─── СОСТОЯНИЯ ЗАПИСИ ─────────────────────────────────────────────────────────
 # Хранит состояние пользователя: None / "waiting_name" / "waiting_service" / "waiting_time"
