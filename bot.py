@@ -33,42 +33,65 @@ CLINIC_INFO = """
 2. Если вопрос про что-то чего нет в прайсе — скажи: "Этот вопрос я передал администратору — вам ответят в течение 2 часов."
 3. НИКОГДА не говори просто "уточню у администратора" без срока ответа.
 4. Не придумывай цены которых нет в списке выше.
-5. Никогда не проси номер телефона — клиент сам свяжется или администратор перезвонит.
+5. Никогда не проси номер телефона.
 """
 
+# Состояния: None / "waiting_name" / "waiting_service" / "waiting_time"
 user_state   = {}
 booking_data = {}
 
+SERVICES = {
+    "price_clean":   "Профчистка зубов",
+    "price_treat":   "Лечение кариеса",
+    "price_implant": "Имплантация",
+    "price_white":   "Отбеливание",
+}
+
+# ─── КЛАВИАТУРЫ ───────────────────────────────────────────────────────────────
 def main_menu():
-    markup = InlineKeyboardMarkup()
-    markup.row(
+    m = InlineKeyboardMarkup()
+    m.row(
         InlineKeyboardButton("💰 Цены",       callback_data="prices"),
         InlineKeyboardButton("📅 Записаться", callback_data="book")
     )
-    markup.row(
+    m.row(
         InlineKeyboardButton("📍 Адрес",  callback_data="address"),
         InlineKeyboardButton("❓ Вопрос", callback_data="question")
     )
-    return markup
+    return m
 
-def after_booking_menu():
-    markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("◀️ В главное меню", callback_data="back_to_start"))
-    return markup
+def prices_menu():
+    m = InlineKeyboardMarkup()
+    m.row(
+        InlineKeyboardButton("🦷 Чистка",      callback_data="price_clean"),
+        InlineKeyboardButton("💊 Лечение",     callback_data="price_treat")
+    )
+    m.row(
+        InlineKeyboardButton("🔩 Имплант",     callback_data="price_implant"),
+        InlineKeyboardButton("✨ Отбеливание", callback_data="price_white")
+    )
+    m.row(InlineKeyboardButton("◀️ Назад", callback_data="back_to_start"))
+    return m
 
-def back_to_main():
-    markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("◀️ Главное меню", callback_data="back_to_start"))
-    return markup
-
-def after_price_menu():
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("📅 Записаться", callback_data="book"),
+def after_price_menu(service_key):
+    m = InlineKeyboardMarkup()
+    m.row(
+        InlineKeyboardButton("📅 Записаться", callback_data=f"book_service:{service_key}"),
         InlineKeyboardButton("◀️ Назад",      callback_data="prices")
     )
-    return markup
+    return m
 
+def only_back():
+    m = InlineKeyboardMarkup()
+    m.row(InlineKeyboardButton("◀️ В главное меню", callback_data="back_to_start"))
+    return m
+
+def cancel_booking_menu():
+    m = InlineKeyboardMarkup()
+    m.row(InlineKeyboardButton("❌ Отменить запись", callback_data="cancel_booking"))
+    return m
+
+# ─── УВЕДОМЛЕНИЕ АДМИНИСТРАТОРА ───────────────────────────────────────────────
 def notify_admin(text):
     if ADMIN_CHAT_ID:
         try:
@@ -76,6 +99,7 @@ def notify_admin(text):
         except Exception:
             pass
 
+# ─── /start ───────────────────────────────────────────────────────────────────
 @bot.message_handler(commands=["start"])
 def start(message):
     user_state.pop(message.chat.id, None)
@@ -86,112 +110,166 @@ def start(message):
         reply_markup=main_menu()
     )
 
+# ─── КНОПКИ ───────────────────────────────────────────────────────────────────
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     cid = call.message.chat.id
     mid = call.message.message_id
     bot.answer_callback_query(call.id)
+    data = call.data
 
-    if call.data in ("back_to_start", "prices", "address", "question"):
+    # Сброс состояния при навигации
+    if data in ("back_to_start", "prices", "address", "question", "book"):
         user_state.pop(cid, None)
         booking_data.pop(cid, None)
 
-    if call.data == "back_to_start":
-        bot.send_message(cid, "Чем могу помочь?", reply_markup=main_menu())
-
-    elif call.data == "prices":
-        markup = InlineKeyboardMarkup()
-        markup.row(
-            InlineKeyboardButton("🦷 Чистка",      callback_data="price_clean"),
-            InlineKeyboardButton("💊 Лечение",     callback_data="price_treat")
-        )
-        markup.row(
-            InlineKeyboardButton("🔩 Имплант",     callback_data="price_implant"),
-            InlineKeyboardButton("✨ Отбеливание", callback_data="price_white")
-        )
-        markup.row(InlineKeyboardButton("◀️ Назад", callback_data="back_to_start"))
+    if data == "back_to_start":
         try:
-            bot.edit_message_text("Выберите услугу:", cid, mid, reply_markup=markup)
+            bot.edit_message_text("Чем могу помочь?", cid, mid, reply_markup=main_menu())
         except Exception:
-            bot.send_message(cid, "Выберите услугу:", reply_markup=markup)
+            bot.send_message(cid, "Чем могу помочь?", reply_markup=main_menu())
 
-    elif call.data == "price_clean":
-        bot.send_message(cid, "🦷 *Профчистка зубов* — от 3 500 руб\nВключает ультразвук + полировку\n\nЗаписаться на чистку?", parse_mode="Markdown", reply_markup=after_price_menu())
-    elif call.data == "price_treat":
-        bot.send_message(cid, "💊 *Лечение кариеса* — от 4 500 руб\n\nЗаписаться?", parse_mode="Markdown", reply_markup=after_price_menu())
-    elif call.data == "price_implant":
-        bot.send_message(cid, "🔩 *Имплантация* — от 35 000 руб\nВключает первичную консультацию\n\nЗаписаться?", parse_mode="Markdown", reply_markup=after_price_menu())
-    elif call.data == "price_white":
-        bot.send_message(cid, "✨ *Отбеливание* — от 8 000 руб\n\nЗаписаться?", parse_mode="Markdown", reply_markup=after_price_menu())
+    elif data == "prices":
+        try:
+            bot.edit_message_text("Выберите услугу:", cid, mid, reply_markup=prices_menu())
+        except Exception:
+            bot.send_message(cid, "Выберите услугу:", reply_markup=prices_menu())
 
-    elif call.data == "address":
+    elif data in SERVICES:
+        service_name = SERVICES[data]
+        prices = {
+            "price_clean":   "🦷 *Профчистка зубов* — от 3 500 руб\nВключает ультразвук + полировку",
+            "price_treat":   "💊 *Лечение кариеса* — от 4 500 руб",
+            "price_implant": "🔩 *Имплантация* — от 35 000 руб\nВключает первичную консультацию",
+            "price_white":   "✨ *Отбеливание* — от 8 000 руб",
+        }
+        bot.send_message(cid,
+            f"{prices[data]}\n\nЗаписаться на {service_name.lower()}?",
+            parse_mode="Markdown",
+            reply_markup=after_price_menu(data))
+
+    elif data.startswith("book_service:"):
+        # Записаться сразу с выбранной услугой
+        service_key = data.split(":")[1]
+        service_name = SERVICES.get(service_key, "")
+        user_state[cid]   = "waiting_name"
+        booking_data[cid] = {"service": service_name}
+        bot.send_message(cid,
+            f"Отлично! Записываем вас на *{service_name.lower()}* 📝\n\n"
+            f"Шаг 1 из 2 — Как вас зовут?",
+            parse_mode="Markdown",
+            reply_markup=cancel_booking_menu())
+
+    elif data == "book":
+        user_state[cid]   = "waiting_name"
+        booking_data[cid] = {}
+        bot.send_message(cid,
+            "Отлично! Оформим запись 📝\n\nШаг 1 из 3 — Как вас зовут?",
+            reply_markup=cancel_booking_menu())
+
+    elif data == "cancel_booking":
+        user_state.pop(cid, None)
+        booking_data.pop(cid, None)
+        bot.send_message(cid, "Запись отменена. Чем могу помочь?", reply_markup=main_menu())
+
+    elif data == "address":
         bot.send_message(cid,
             "📍 *Адрес:* Москва, ул. Примерная, 1\n"
             "📞 *Телефон:* +7 (999) 123-45-67\n\n"
             "🕐 Пн–Пт: 9:00–21:00\n"
             "🕐 Сб–Вс: 10:00–18:00",
-            parse_mode="Markdown", reply_markup=back_to_main())
+            parse_mode="Markdown",
+            reply_markup=only_back())
 
-    elif call.data == "book":
-        user_state[cid]   = "waiting_name"
-        booking_data[cid] = {}
-        bot.send_message(cid, "Отлично! Оформим запись 📝\n\nШаг 1 из 3 — Как вас зовут?")
-
-    elif call.data == "question":
+    elif data == "question":
         user_state[cid] = "waiting_question"
-        bot.send_message(cid, "Задайте ваш вопрос — отвечу сразу 💬")
+        bot.send_message(cid,
+            "Задайте ваш вопрос — отвечу сразу 💬\n"
+            "_(или нажмите /start чтобы вернуться в меню)_",
+            parse_mode="Markdown")
 
+# ─── ТЕКСТОВЫЕ СООБЩЕНИЯ ──────────────────────────────────────────────────────
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     cid   = message.chat.id
     text  = message.text.strip()
     state = user_state.get(cid)
 
+    # ── Шаг: имя ──────────────────────────────────────────────────────────────
     if state == "waiting_name":
-        booking_data[cid]["name"] = text
-        user_state[cid] = "waiting_service"
-        bot.send_message(cid,
-            f"Приятно познакомиться, {text}! 👋\n\n"
-            f"Шаг 2 из 3 — Какая услуга вас интересует?\n"
-            f"(чистка, лечение, имплант, отбеливание, консультация)")
+        # Простая валидация — имя не должно быть длиннее 30 символов
+        # и не должно содержать цифры
+        if len(text) > 30 or any(c.isdigit() for c in text):
+            bot.send_message(cid,
+                "Пожалуйста, введите ваше имя 😊",
+                reply_markup=cancel_booking_menu())
+            return
 
+        booking_data[cid]["name"] = text
+        service = booking_data[cid].get("service")
+
+        if service:
+            # Услуга уже выбрана — пропускаем шаг 2
+            user_state[cid] = "waiting_time"
+            bot.send_message(cid,
+                f"Приятно познакомиться, {text}! 👋\n\n"
+                f"Шаг 2 из 2 — Когда вам удобно? 🗓\n"
+                f"_(например: завтра утром, в пятницу после 18:00)_",
+                parse_mode="Markdown",
+                reply_markup=cancel_booking_menu())
+        else:
+            user_state[cid] = "waiting_service"
+            bot.send_message(cid,
+                f"Приятно познакомиться, {text}! 👋\n\n"
+                f"Шаг 2 из 3 — Какая услуга вас интересует?\n"
+                f"_(чистка, лечение, имплант, отбеливание, консультация)_",
+                parse_mode="Markdown",
+                reply_markup=cancel_booking_menu())
+
+    # ── Шаг: услуга ───────────────────────────────────────────────────────────
     elif state == "waiting_service":
         booking_data[cid]["service"] = text
         user_state[cid] = "waiting_time"
         bot.send_message(cid,
             "Шаг 3 из 3 — Когда вам удобно? 🗓\n"
-            "(например: завтра утром, в пятницу после 18:00)")
+            "_(например: завтра утром, в пятницу после 18:00)_",
+            parse_mode="Markdown",
+            reply_markup=cancel_booking_menu())
 
+    # ── Шаг: время ────────────────────────────────────────────────────────────
     elif state == "waiting_time":
         booking_data[cid]["time"] = text
-        data = booking_data[cid]
+        d = booking_data[cid]
         user_state.pop(cid, None)
         booking_data.pop(cid, None)
 
         bot.send_message(cid,
             f"✅ *Заявка принята!*\n\n"
-            f"👤 Имя: {data.get('name')}\n"
-            f"🦷 Услуга: {data.get('service')}\n"
+            f"👤 Имя: {d.get('name')}\n"
+            f"🦷 Услуга: {d.get('service')}\n"
             f"🕐 Время: {text}\n\n"
             f"Администратор свяжется с вами в ближайшее время для подтверждения.",
             parse_mode="Markdown",
-            reply_markup=after_booking_menu())
+            reply_markup=only_back())
 
         notify_admin(
             f"🔔 НОВАЯ ЗАЯВКА НА ЗАПИСЬ\n\n"
-            f"👤 Имя: {data.get('name')}\n"
-            f"🦷 Услуга: {data.get('service')}\n"
+            f"👤 Имя: {d.get('name')}\n"
+            f"🦷 Услуга: {d.get('service')}\n"
             f"🕐 Время: {text}\n"
             f"💬 Chat ID: {cid}"
         )
 
+    # ── Вопрос через кнопку ───────────────────────────────────────────────────
     elif state == "waiting_question":
         user_state.pop(cid, None)
         _ai_respond(cid, text)
 
+    # ── Любое другое сообщение ────────────────────────────────────────────────
     else:
         _ai_respond(cid, text)
 
+# ─── AI ОТВЕТ ─────────────────────────────────────────────────────────────────
 def _ai_respond(cid, text):
     try:
         response = client.chat.completions.create(
@@ -215,6 +293,7 @@ def _ai_respond(cid, text):
             "Произошла ошибка. Попробуйте ещё раз или нажмите /start",
             reply_markup=main_menu())
 
+# ─── FLASK (Render не засыпает) ───────────────────────────────────────────────
 app = Flask(__name__)
 
 @app.route("/")
@@ -225,10 +304,11 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
+# ─── ЗАПУСК ───────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     bot.remove_webhook()
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
+    t = threading.Thread(target=run_flask)
+    t.daemon = True
+    t.start()
     print("Bot started ✅")
     bot.polling(none_stop=True, interval=1)
